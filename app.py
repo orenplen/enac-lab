@@ -32,8 +32,8 @@ st.sidebar.header("2. Manual Adjustments")
 override = st.sidebar.checkbox("Override Scenario Settings")
 
 # --- SIMULATION LOGIC ---
-# Returns: (Genotype_Activity, Aldosterone, Na_Delivery, Block_Percent)
 def get_scenario_params(scenario):
+    # Returns: (Genotype_Activity, Aldosterone, Na_Delivery, Block_Percent)
     if scenario == "Normal Physiology":
         return 1.0, 10.0, 1.0, 0.0
     elif scenario == "Furosemide Use":
@@ -46,12 +46,13 @@ def get_scenario_params(scenario):
         return 1.0, 10.0, 1.0, 0.95 
     elif scenario == "PHA1 (Loss of Function)":
         return 0.1, 100.0, 1.0, 0.0 
+    return 1.0, 10.0, 1.0, 0.0
 
 genotype_factor, aldo_level, na_delivery, amiloride_block = get_scenario_params(scenario)
 
 if override:
-    aldo_level = st.sidebar.slider("Aldosterone Level (nM)", 0.0, 100.0, aldo_level)
-    amiloride_block = st.sidebar.slider("Amiloride Block (%)", 0.0, 1.0, amiloride_block)
+    aldo_level = st.sidebar.slider("Aldosterone Level (nM)", 0.0, 100.0, float(aldo_level))
+    amiloride_block = st.sidebar.slider("Amiloride Block (%)", 0.0, 1.0, float(amiloride_block))
 
 # --- CALCULATIONS ---
 # 1. ENaC Activity Calculation
@@ -86,12 +87,14 @@ def draw_nephron_status(bp, k, activity, scenario):
     path_x = [1, 2, 2, 4, 4, 6, 6, 8, 8]
     path_y = [5, 5, 2, 2, 5, 5, 3, 3, 1]
     
+    # Proximal/Loop
     ax.plot(path_x[:5], path_y[:5], color='#d3d3d3', linewidth=20, alpha=0.5, solid_capstyle='round') 
+    # Distal/Collecting
     ax.plot(path_x[4:], path_y[4:], color='#FFD700', linewidth=25, solid_capstyle='round') 
 
     # Labels
     ax.text(1.5, 5.5, "Proximal / Loop", color='gray', fontsize=10)
-    ax.text(6.0, 5.5, "Collecting Duct (ENaC Site)", color='#B8860B', fontsize=12, weight='bold', ha='center')
+    ax.text(6.0, 5.5, "Collecting Duct", color='#B8860B', fontsize=12, weight='bold', ha='center')
 
     # Scenario Annotations
     if scenario == "Furosemide Use":
@@ -121,9 +124,63 @@ def draw_nephron_status(bp, k, activity, scenario):
     ax.text(5.6, 3.6, "K+ Out", color='purple', weight='bold', fontsize=8)
 
     # --- DASHBOARD BOXES ---
-    # Blood Pressure Box
-    bp_color = "red" if bp > 140 else "blue" if bp < 100 else "green"
+    
+    # Blood Pressure Box Logic
+    if bp > 140:
+        bp_color = "red"
+    elif bp < 100:
+        bp_color = "blue"
+    else:
+        bp_color = "green"
+
+    # Potassium Box Logic
+    if k > 5.2 or k < 3.2:
+        k_color = "red"
+    else:
+        k_color = "green"
+
+    # Draw BP Box
     rect_bp = patches.FancyBboxPatch((8.2, 4.5), 1.8, 1.2, boxstyle="round,pad=0.1", fc='white', ec=bp_color, lw=2)
     ax.add_patch(rect_bp)
     ax.text(9.1, 5.3, "Blood Pressure", ha='center', size=10)
-    ax.text(9.1, 4.8, f"{int(bp)}/{int(bp*0.66)}", ha
+    # The line below caused your error previously - fixed now
+    bp_text = f"{int(bp)}/{int(bp*0.66)}"
+    ax.text(9.1, 4.8, bp_text, ha='center', size=14, weight='bold', color=bp_color)
+    ax.text(9.1, 4.6, "mmHg", ha='center', size=8)
+
+    # Draw K+ Box
+    rect_k = patches.FancyBboxPatch((8.2, 2.8), 1.8, 1.2, boxstyle="round,pad=0.1", fc='white', ec=k_color, lw=2)
+    ax.add_patch(rect_k)
+    ax.text(9.1, 3.6, "Serum K+", ha='center', size=10)
+    ax.text(9.1, 3.1, f"{k:.1f}", ha='center', size=14, weight='bold', color=k_color)
+    ax.text(9.1, 2.9, "mEq/L", ha='center', size=8)
+
+    st.pyplot(fig)
+
+col_main, col_info = st.columns([3, 1])
+
+with col_main:
+    draw_nephron_status(systolic_bp, potassium, enac_activity, scenario)
+
+with col_info:
+    st.subheader("Results")
+    if systolic_bp > 140:
+        st.error("⚠️ Hypertension")
+    elif systolic_bp < 100:
+        st.info("⚠️ Hypotension")
+    else:
+        st.success("✅ Normotension")
+        
+    if potassium < 3.5:
+        st.error("⚠️ Hypokalemia")
+    elif potassium > 5.0:
+        st.error("⚠️ Hyperkalemia")
+    else:
+        st.success("✅ Normokalemia")
+
+    st.markdown(f"""
+    **Current Variables:**
+    * **Aldosterone:** {aldo_level} nM
+    * **ENaC Block:** {int(amiloride_block*100)}%
+    * **Na+ Load:** {na_delivery}x Baseline
+    """)
