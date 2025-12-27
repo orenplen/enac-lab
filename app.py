@@ -10,7 +10,6 @@ st.title("🔬 Advanced Nephro-Sim: Transport & Regulation")
 # --- SIDEBAR ---
 st.sidebar.header("Patient Scenario")
 
-# Reordered list as requested: Singles first, then combination.
 scenario = st.sidebar.radio(
     "Select Condition:",
     ("Normal Physiology", 
@@ -54,7 +53,6 @@ def get_parameters(scen):
         return 1.0, 80.0, 0.0, 1.0, 0.0, 0.94
         
     if scen == "Furosemide + Aldactone (Combination)":
-        # High Delivery + Blocked Receptor + High Aldo
         return 1.0, 85.0, 0.0, 3.0, 0.0, 0.89
         
     if scen == "Liddle's Syndrome":
@@ -76,7 +74,7 @@ g_factor, serum_aldo, mr_efficacy, delivery, pore_block, vol_mod = get_parameter
 effective_aldo_signal = serum_aldo * mr_efficacy
 
 if mr_efficacy < 0.1:
-    expression_level = 0.1 # Basal expression only (Aldactone)
+    expression_level = 0.1 # Basal
 else:
     expression_level = 0.2 + (effective_aldo_signal / 12.0)
 
@@ -99,14 +97,14 @@ systolic = max(90, min(190, systolic))
 # 4. Potassium
 k_val = 4.0 - (0.6 * (final_flux - 1.0))
 
-# --- Specific Overrides for Clinical Accuracy ---
+# Overrides
 if scenario == "Amiloride (Channel Blocker)":
     k_val = 6.0 
 elif scenario == "Acetazolamide (Proximal)":
     k_val = 3.3 
 elif scenario == "Furosemide + Aldactone (Combination)":
     k_val = 4.4 
-elif final_flux < 0.2: # PHA / Pure Aldactone
+elif final_flux < 0.2: 
     k_val = 5.8 
 
 k_val = max(2.8, min(7.5, k_val))
@@ -133,10 +131,9 @@ def draw_dashboard(scen, flux, deliv, aldo, mr_eff):
     ax_nephron.plot([5, 7], [4, 4], color='#4BC0C0', lw=lw, solid_capstyle='round') # DCT
     ax_nephron.plot([7, 8, 8, 9], [4, 4, 1, 1], color='#FFD700', lw=lw*1.5, solid_capstyle='round') # CD
 
-    # Na+ Dots (Visualizing Delivery)
+    # Na+ Dots
     dot_count = int(12 * deliv)
     dot_count = min(60, dot_count) 
-    
     xf = np.linspace(7, 8, int(dot_count/2) + 1)
     yf = np.full_like(xf, 4)
     ax_nephron.scatter(xf, yf, color='blue', s=15, zorder=10)
@@ -172,7 +169,6 @@ def draw_dashboard(scen, flux, deliv, aldo, mr_eff):
     # -- MR STATUS --
     ax_cell.add_patch(patches.Circle((5, 4), 0.7, fc='white', ec='black', ls='--')) 
     
-    # Logic for MR colors and text
     if mr_eff < 0.1: # Aldactone
         mr_col = 'gray'
         mr_txt = "MR Blocked"
@@ -190,8 +186,8 @@ def draw_dashboard(scen, flux, deliv, aldo, mr_eff):
         ax_cell.arrow(5, 4.5, -1, 1, head_width=0.2, color='#A5D6A7', lw=1)
 
     ax_cell.add_patch(patches.Circle((5, 4), 0.3, fc=mr_col))
-    # MOVED DOWN to 2.2 to avoid overlap with ROMK
-    ax_cell.text(5, 2.2, mr_txt, ha='center', fontsize=9, weight='bold')
+    # FIX: MOVED UP TO 3.2 (Under Nucleus)
+    ax_cell.text(5, 3.2, mr_txt, ha='center', fontsize=9, weight='bold')
 
     # -- ENaC CHANNEL --
     ax_cell.plot([3, 4], [6, 6], color='black', lw=2) 
@@ -211,20 +207,21 @@ def draw_dashboard(scen, flux, deliv, aldo, mr_eff):
 
     ax_cell.text(3.5, 4.5, "ENaC", ha='center', fontsize=9, weight='bold')
 
-    # ROMK
+    # -- ROMK CHANNEL --
     ax_cell.plot([3, 3.5], [3, 3], color='purple', lw=2)
     ax_cell.plot([3, 3.5], [2, 2], color='purple', lw=2)
     
-    # ROMK Secretion Visuals
-    # MOVED UP to 3.2 to avoid overlap with MR
     if flux > 0.8:
         ax_cell.arrow(4.5, 2.5, -3.0, 0, head_width=0.2, color='purple', lw=3)
-        ax_cell.text(4, 3.2, "K+ Secretion", color='purple', fontsize=8)
+        # FIX: MOVED DOWN TO 1.5 (Under Channel)
+        ax_cell.text(4, 1.5, "K+ Secretion", color='purple', fontsize=8)
     elif flux > 0.2: 
         ax_cell.arrow(4.5, 2.5, -2.0, 0, head_width=0.1, color='purple', lw=1)
-        ax_cell.text(4, 3.2, "Normal K+", color='purple', fontsize=8)
+        # FIX: MOVED DOWN TO 1.5
+        ax_cell.text(4, 1.5, "Normal K+", color='purple', fontsize=8)
     else:
-        ax_cell.text(2.5, 2.5, "Reduced", color='gray', fontsize=8, ha='center')
+        # FIX: MOVED DOWN TO 1.5
+        ax_cell.text(2.5, 1.5, "Reduced", color='gray', fontsize=8, ha='center')
 
     # === DATA PANEL ===
     ax_data.axis('off')
