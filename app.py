@@ -143,9 +143,10 @@ def draw_nephron_status(bp, k, activity, scenario):
     rect_bp = patches.FancyBboxPatch((8.2, 4.5), 1.8, 1.2, boxstyle="round,pad=0.1", fc='white', ec=bp_color, lw=2)
     ax.add_patch(rect_bp)
     ax.text(9.1, 5.3, "Blood Pressure", ha='center', size=10)
-    # The line below caused your error previously - fixed now
-    bp_text = f"{int(bp)}/{int(bp*0.66)}"
-    ax.text(9.1, 4.8, bp_text, ha='center', size=14, weight='bold', color=bp_color)
+    
+    # Use formatted string variable to avoid syntax errors in the function call
+    bp_display = f"{int(bp)}/{int(bp*0.66)}"
+    ax.text(9.1, 4.8, bp_display, ha='center', size=14, weight='bold', color=bp_color)
     ax.text(9.1, 4.6, "mmHg", ha='center', size=8)
 
     # Draw K+ Box
