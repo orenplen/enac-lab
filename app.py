@@ -5,7 +5,6 @@ import numpy as np
 
 # --- PAGE SETUP ---
 st.set_page_config(page_title="Nephro-Sim", layout="wide")
-
 st.title("🔬 Advanced Nephro-Sim: Transport & Regulation")
 
 # --- SIDEBAR ---
@@ -20,93 +19,124 @@ scenario = st.sidebar.radio(
      "Liddle's Syndrome", 
      "Amiloride (Channel Blocker)", 
      "Aldactone (Receptor Antagonist)",
-     "PHA1 (Loss of Function)")
+     "PHA Type 1 (ENaC Inactivity)")
 )
 
 # --- LOGIC ENGINE ---
-def calculate_state(scen):
-    # Variables: 
-    # 1. Genotype Factor (Mutations)
-    # 2. Serum Aldosterone (The systemic level)
-    # 3. Receptor Function (0.0 = Blocked/Defect, 1.0 = Normal)
-    # 4. Distal Delivery (1.0 = Normal, >1 = High Load)
-    # 5. ENaC Pore Block (0.0 = Open, 1.0 = Plugged)
+def get_parameters(scen):
+    # RETURNS: 
+    # 1. Genotype (1.0 = Normal)
+    # 2. Serum Aldo (ng/dL, Norm=10-15)
+    # 3. MR Efficacy (0 to 1)
+    # 4. Distal Na Load (1.0 = Normal)
+    # 5. Pore Block % (0 to 1)
+    # 6. Volume Status Modifier (Affects BP directly, 1.0=Euvol)
     
     if scen == "Normal Physiology":
-        return 1.0, 10.0, 1.0, 1.0, 0.0
+        # Baseline: Aldo allows moderate Na reabsorption
+        return 1.0, 12.0, 1.0, 1.0, 0.0, 1.0
         
     if scen == "Acetazolamide (Proximal)":
-        # Blocks NHE3 -> High Na/HCO3 downstream
-        return 1.0, 30.0, 1.0, 1.8, 0.0
+        # Diuretic -> Low BP.
+        # User Logic: Hypokalemia/Acidosis context suppressing Aldo/MR despite vol depletion.
+        return 1.0, 8.0, 0.8, 1.5, 0.0, 0.90
         
     if scen == "Vomiting (Metabolic Alkalosis)":
-        # Loss of H+/Cl- -> Volume Depletion -> High Aldo
-        # High Bicarb in tubule -> High Na Delivery (obligatory anion)
-        return 1.0, 85.0, 1.0, 1.5, 0.0
+        # Vol Depletion -> Low BP. 
+        # High Aldo (RAAS). High Bicarb delivery obligates Na/K loss.
+        return 1.0, 60.0, 1.0, 1.4, 0.0, 0.85
 
     if scen == "Furosemide (Loop)":
-        return 1.0, 80.0, 1.0, 3.0, 0.0
+        # Massive Na delivery. Significant Volume loss (Low BP).
+        # High Aldo.
+        return 1.0, 50.0, 1.0, 3.5, 0.0, 0.88
         
     if scen == "Dehydration":
-        return 1.0, 95.0, 1.0, 0.5, 0.0
+        # Max Aldo. Low flow/delivery (prerenal), but avid retention.
+        # BP Low due to hypovolemia.
+        return 1.0, 80.0, 1.0, 0.6, 0.0, 0.85
         
     if scen == "Liddle's Syndrome":
-        # Gain of function (High Surface Expression). Aldo is suppressed.
-        return 4.0, 2.0, 1.0, 1.0, 0.0
+        # Const. Active. Vol Expansion -> Hypertension.
+        # Aldo Suppressed.
+        return 4.0, 2.0, 1.0, 1.0, 0.0, 1.15
         
     if scen == "Amiloride (Channel Blocker)":
-        return 1.0, 15.0, 1.0, 1.0, 0.95
+        # ENaC Blocked. Na wasting -> Vol Drop -> High Aldo (Compensatory).
+        # MR is ACTIVE, but channel is plugged.
+        # BP slightly low/normal.
+        return 1.0, 70.0, 1.0, 1.0, 0.95, 0.94
         
     if scen == "Aldactone (Receptor Antagonist)":
-        # Blocks MR. Systemic Aldo is HIGH (compensatory), but Effect is LOW.
-        return 1.0, 90.0, 0.05, 1.0, 0.0
+        # MR Blocked. Aldo is HIGH (trying to fix it).
+        # Natriuresis -> Mild BP drop.
+        return 1.0, 80.0, 0.0, 1.0, 0.0, 0.94
         
-    if scen == "PHA1 (Loss of Function)":
-        # ENaC broken. Aldo very high.
-        return 0.1, 100.0, 1.0, 1.0, 0.0
+    if scen == "PHA Type 1 (ENaC Inactivity)":
+        # Mimics Amiloride but genetic. ENaC dead.
+        # Salt Wasting -> Low BP -> High Aldo.
+        return 0.1, 90.0, 1.0, 1.0, 0.0, 0.88
         
-    return 1.0, 10.0, 1.0, 1.0, 0.0
+    return 1.0, 10.0, 1.0, 1.0, 0.0, 1.0
 
-g_factor, serum_aldo, mr_efficacy, delivery, pore_block = calculate_state(scenario)
+g_factor, serum_aldo, mr_efficacy, delivery, pore_block, vol_mod = get_parameters(scenario)
 
-# --- PHYSIOLOGY MATH ---
-# Effective Aldo at the DNA level = Serum * Receptor Efficacy
-aldo_effective = serum_aldo * mr_efficacy
+# --- PHYSIOLOGY CALCULATION ---
 
-# Activity Calculation
-# Note: Liddle's bypasses the receptor requirement (constitutive)
+# 1. Effective Aldosterone Signal
+# (Serum Level * Receptor Health). 
+# Note: In Liddle's, the channel ignores the low Aldo signal and stays open.
+aldo_signal = serum_aldo * mr_efficacy
+aldo_stim = 1 + (aldo_signal / 15.0) 
+
 if scenario == "Liddle's Syndrome":
-    aldo_factor = 1.0 # Aldo not needed
+    # Mutation overrides low aldo
+    channel_open_prob = g_factor 
 else:
-    aldo_factor = 1 + (aldo_effective / 20.0)
+    channel_open_prob = g_factor * aldo_stim
 
-activity = (g_factor * aldo_factor * delivery) * (1 - pore_block)
+# 2. Total ENaC Activity (Flux)
+# Flux = (Open Probability * Substrate Delivery) * (1 - Physical Block)
+enac_flux = channel_open_prob * delivery * (1 - pore_block)
 
-# BP Model
-vol_mod = 0.9 if scenario in ["Acetazolamide (Proximal)", "Furosemide (Loop)", "Vomiting (Metabolic Alkalosis)"] else 1.0
-bp = 120 * (0.8 + (0.2 * activity)) * vol_mod
-bp = max(80, min(220, bp))
+# 3. Blood Pressure Model
+# Base 120. Affected by Volume Status (primary) and ENaC retention (secondary fine tune)
+# We weight Volume Status heavily for cases like Dehydration/Vomiting
+base_bp = 120
+bp = base_bp * vol_mod
+# Small fine-tuning by ENaC activity (retention vs wasting)
+bp += (enac_flux - 1.5) * 4 
+# Safety clamps
+bp = max(85, min(190, bp))
 
-# K+ Model (Na reabsorption drives K secretion)
-k_val = 4.0 - (0.4 * (activity - 1.5))
-k_val = max(1.5, min(8.5, k_val))
+# 4. Potassium Model
+# Base 4.0. Driven inversely by ENaC Flux (Na in -> K out).
+# Higher Flux = Lower K.
+# Algorithm: Start at 4.0. Subtract proportional to flux.
+k_val = 4.0 - (0.5 * (enac_flux - 2.0))
 
-# --- VISUALIZATION FUNCTION ---
-def draw_dashboard(scen, act, deliv, aldo_level, mr_status):
+# Special Adjustment for Aldactone/Amiloride/PHA (Hyperkalemia drivers)
+# If ENaC is blocked/dead, K secretion stops, K rises significantly.
+if pore_block > 0.8 or g_factor < 0.2 or mr_efficacy < 0.1:
+    k_val += 1.5 # Boost to hyperkalemic range
+
+# Safety Clamps (User Request: prevent 1.5)
+k_val = max(2.8, min(6.5, k_val))
+
+# --- VISUALIZATION ---
+def draw_dashboard(scen, flux, deliv, aldo, mr_eff):
     fig = plt.figure(figsize=(12, 9))
     
-    # Grid Layout
     ax_nephron = plt.subplot2grid((3, 2), (0, 0), colspan=2)
     ax_cell = plt.subplot2grid((3, 2), (1, 0), rowspan=2)
     ax_data = plt.subplot2grid((3, 2), (1, 1), rowspan=2)
     
-    # === 1. MACRO: THE NEPHRON ===
+    # === MACRO NEPHRON ===
     ax_nephron.set_title("Nephron Transport Sites", fontweight='bold')
     ax_nephron.set_xlim(0, 12)
     ax_nephron.set_ylim(0, 5)
     ax_nephron.axis('off')
     
-    # Draw Segments
     lw = 12 
     # PCT
     ax_nephron.plot([1, 3], [4, 4], color='#FF9F40', lw=lw, solid_capstyle='round')
@@ -121,120 +151,112 @@ def draw_dashboard(scen, act, deliv, aldo_level, mr_status):
     ax_nephron.plot([7, 8, 8, 9], [4, 4, 1, 1], color='#FFD700', lw=lw*1.5, solid_capstyle='round')
     ax_nephron.text(8, 4.4, "Collecting Duct", ha='center', fontsize=9, color='#B8860B', weight='bold')
 
-    # Visualizing Na+ Flow (Blue Dots in Lumen)
-    # Density depends on 'delivery'
-    dot_count = int(10 * deliv)
-    # Generate random positions in the CD segment (x=7-8, y=4 down to 1)
-    # Horizontal part
+    # Na+ Dots
+    dot_count = int(12 * deliv)
     xf = np.linspace(7, 8, int(dot_count/2))
     yf = np.full_like(xf, 4)
-    ax_nephron.scatter(xf, yf, color='blue', s=10, zorder=10)
-    # Vertical part
+    ax_nephron.scatter(xf, yf, color='blue', s=15, zorder=10)
     xv = np.full(int(dot_count/2), 8)
     yv = np.linspace(4, 1, int(dot_count/2))
-    ax_nephron.scatter(xv, yv, color='blue', s=10, zorder=10)
+    ax_nephron.scatter(xv, yv, color='blue', s=15, zorder=10)
     
-    if deliv > 1.2:
-        ax_nephron.text(8.5, 3, "High Distal\nNa+ Load", color='blue', fontsize=8)
-
-    # Transporter Highlights
+    # Labels
     ax_nephron.text(2, 4, "NHE3", ha='center', va='center', fontsize=7, color='white', weight='bold')
     ax_nephron.text(4, 1.5, "NKCC2", ha='center', va='center', fontsize=7, weight='bold')
     ax_nephron.text(6, 4, "NCC", ha='center', va='center', fontsize=7, color='white', weight='bold')
     ax_nephron.text(8, 2.5, "ENaC", ha='center', va='center', fontsize=8, weight='bold')
 
-    # === 2. MICRO: PRINCIPAL CELL ===
+    # === MICRO CELL ===
     ax_cell.set_title("Principal Cell Zoom", fontweight='bold')
     ax_cell.set_xlim(0, 10)
     ax_cell.set_ylim(0, 10)
     ax_cell.axis('off')
     
-    # Backgrounds
-    ax_cell.add_patch(patches.Rectangle((0, 0), 3, 10, fc='#E0F7FA', alpha=0.5)) # Lumen
+    # Lumen/Blood/Cell
+    ax_cell.add_patch(patches.Rectangle((0, 0), 3, 10, fc='#E0F7FA', alpha=0.5))
     ax_cell.text(1.5, 9.5, "LUMEN", ha='center', color='#006064', weight='bold')
-    ax_cell.add_patch(patches.Rectangle((7, 0), 3, 10, fc='#FFEBEE', alpha=0.5)) # Blood
+    ax_cell.add_patch(patches.Rectangle((7, 0), 3, 10, fc='#FFEBEE', alpha=0.5))
     ax_cell.text(8.5, 9.5, "BLOOD", ha='center', color='#B71C1C', weight='bold')
-    
-    # Cell Body
     cell_box = patches.FancyBboxPatch((3, 1), 4, 8, boxstyle="round,pad=0.1", fc='#FFF9C4', ec='black', lw=2)
     ax_cell.add_patch(cell_box)
     
-    # -- ALDOSTERONE PATHWAY --
-    # Draw MR Receptor in Nucleus area
-    ax_cell.add_patch(patches.Circle((5, 4), 0.6, fc='white', ec='black', ls='--')) # Nucleus
+    # MR RECEPTOR VISUAL
+    # Nucleus
+    ax_cell.add_patch(patches.Circle((5, 4), 0.7, fc='white', ec='black', ls='--')) 
     
-    # MR Status
-    if mr_status < 0.5: # Blocked by Aldactone
-        mr_color = 'gray'
-        mr_text = "MR (Blocked)"
-        ax_cell.text(5, 4, "❌", ha='center', va='center', fontsize=15)
-    elif aldo_level > 15: # High Aldo
-        mr_color = '#4CAF50' # Green
-        mr_text = "MR (Active)"
-        # Arrow from MR to ENaC
-        ax_cell.arrow(5, 4.5, -1, 1, head_width=0.2, color='green', lw=2)
-    else: # Low Aldo
-        mr_color = '#A5D6A7' # Pale Green
-        mr_text = "MR (Idle)"
+    if mr_eff < 0.1: # Aldactone
+        mr_col = 'gray'
+        mr_txt = "MR Blocked"
+        ax_cell.text(5, 4, "❌", ha='center', va='center', fontsize=20)
+    elif aldo > 15: # High Aldo (Amiloride/Vomit/Dehyd)
+        mr_col = '#00C853' # Bright Green
+        mr_txt = "MR High Activity"
+        # Strong signal arrow
+        ax_cell.arrow(5, 4.5, -1, 1, head_width=0.3, color='#00C853', lw=3)
+    else: # Baseline/Low
+        mr_col = '#A5D6A7'
+        mr_txt = "MR Basal"
+        ax_cell.arrow(5, 4.5, -1, 1, head_width=0.2, color='#A5D6A7', lw=1)
 
-    ax_cell.add_patch(patches.Circle((5, 4), 0.3, fc=mr_color, alpha=0.5))
-    ax_cell.text(5, 3.2, mr_text, ha='center', fontsize=8)
+    ax_cell.add_patch(patches.Circle((5, 4), 0.3, fc=mr_col))
+    ax_cell.text(5, 3.0, mr_txt, ha='center', fontsize=9, weight='bold')
 
-    # -- ENaC Channel (Apical) --
+    # ENaC CHANNEL
     ax_cell.plot([3, 4], [6, 6], color='black', lw=2) 
     ax_cell.plot([3, 4], [5, 5], color='black', lw=2) 
     
-    # Na+ Influx Visuals
     if "Amiloride" in scen:
         ax_cell.add_patch(patches.Circle((3, 5.5), 0.3, fc='red'))
-        ax_cell.text(2.2, 5.5, "Blocked", color='red', fontsize=8, ha='right')
-    elif act > 0.5:
-        # Draw Na+ ions passing through
-        ax_cell.arrow(1.5, 5.5, 3.5, 0, head_width=0.3, color='#4CAF50', lw=act*2)
+        ax_cell.text(2.2, 5.5, "Plugged", color='red', fontsize=9, ha='right')
+    elif flux > 0.3:
+        # Flow Arrow thickness depends on flux
+        w = min(1.0, flux * 0.3)
+        ax_cell.arrow(1.5, 5.5, 3.5, 0, head_width=0.3, color='#4CAF50', lw=w*10)
         ax_cell.text(2, 6.2, "Na+ Influx", color='#2E7D32', weight='bold')
-        # Na ions inside
-        ax_cell.scatter([3.2, 3.5, 3.8], [5.5, 5.5, 5.5], color='blue', s=30, zorder=10)
-
+    else:
+        ax_cell.text(3.5, 5.5, "Inactive", fontsize=8, ha='center', va='center', rotation=90)
+        
     ax_cell.text(3.5, 4.5, "ENaC", ha='center', fontsize=9, weight='bold')
-    
-    # -- ROMK Channel --
+
+    # ROMK
     ax_cell.plot([3, 3.5], [3, 3], color='purple', lw=2)
     ax_cell.plot([3, 3.5], [2, 2], color='purple', lw=2)
-    if act > 1.5:
+    # Secretion depends on ENaC flux (driving force)
+    if flux > 1.0:
         ax_cell.arrow(4.5, 2.5, -3.0, 0, head_width=0.2, color='purple', lw=3)
         ax_cell.text(4, 2.8, "K+ Secretion", color='purple', fontsize=8)
+    else:
+        ax_cell.text(2.5, 2.5, "Low K+ Flow", color='gray', fontsize=8, ha='center')
 
-    # === 3. DATA PANEL ===
+    # === DATA ===
     ax_data.axis('off')
     
-    # Formatting
-    def get_color(val, low, high, reverse=False):
-        if reverse:
-            if val > high: return 'green' 
-            return 'red'
-        if val > high: return 'red'
-        if val < low: return 'blue'
-        return 'green'
-
-    # Aldo Text
-    c_aldo = 'red' if aldo_level > 20 else 'green'
+    # Logic for colors
+    c_bp = 'green'
+    if bp > 135: c_bp = 'red'
+    if bp < 105: c_bp = 'blue'
+    
+    c_k = 'green'
+    if k_val < 3.5 or k_val > 5.2: c_k = 'red'
+    
+    c_aldo = 'green'
+    if aldo > 20: c_aldo = 'red'
+    
     ax_data.text(0, 0.9, "1. Plasma Aldosterone", fontsize=10, color='gray')
-    ax_data.text(0, 0.8, f"{aldo_level} ng/dL", fontsize=14, color=c_aldo, weight='bold')
+    ax_data.text(0, 0.8, f"{aldo:.0f} ng/dL", fontsize=16, color=c_aldo, weight='bold')
     
-    # BP Text
-    c_bp = get_color(bp, 100, 140)
     ax_data.text(0, 0.6, "2. Blood Pressure", fontsize=10, color='gray')
-    ax_data.text(0, 0.5, f"{int(bp)}/{int(bp*0.66)} mmHg", fontsize=14, color=c_bp, weight='bold')
+    ax_data.text(0, 0.5, f"{int(bp)}/{int(bp*0.66)} mmHg", fontsize=16, color=c_bp, weight='bold')
     
-    # K Text
-    c_k = 'red' if (k_val < 3.5 or k_val > 5.0) else 'green'
     ax_data.text(0, 0.3, "3. Serum Potassium", fontsize=10, color='gray')
-    ax_data.text(0, 0.2, f"{k_val:.1f} mEq/L", fontsize=14, color=c_k, weight='bold')
+    ax_data.text(0, 0.2, f"{k_val:.1f} mEq/L", fontsize=16, color=c_k, weight='bold')
     
-    if k_val < 3.5: ax_data.text(0.5, 0.2, "Hypokalemia", fontsize=9, color='red')
-    if k_val > 5.0: ax_data.text(0.5, 0.2, "Hyperkalemia", fontsize=9, color='red')
+    # Interpretation Text
+    if bp < 100: ax_data.text(0.5, 0.5, "Hypotension", color='blue', fontsize=10)
+    if bp > 140: ax_data.text(0.5, 0.5, "Hypertension", color='red', fontsize=10)
+    if k_val > 5.2: ax_data.text(0.5, 0.2, "Hyperkalemia", color='red', fontsize=10)
+    if k_val < 3.2: ax_data.text(0.5, 0.2, "Hypokalemia", color='red', fontsize=10)
 
     st.pyplot(fig)
 
-# --- RENDER ---
-draw_dashboard(scenario, activity, delivery, serum_aldo, mr_efficacy)
+draw_dashboard(scenario, enac_flux, delivery, serum_aldo, mr_efficacy)
