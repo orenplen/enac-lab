@@ -9,17 +9,19 @@ st.title("🔬 Advanced Nephro-Sim: Transport & Regulation")
 
 # --- SIDEBAR ---
 st.sidebar.header("Patient Scenario")
+
+# Reordered list as requested: Singles first, then combination.
 scenario = st.sidebar.radio(
     "Select Condition:",
     ("Normal Physiology", 
      "Acetazolamide (Proximal)", 
      "Vomiting (Metabolic Alkalosis)",
-     "Furosemide (Loop)", 
-     "Furosemide + Aldactone (Combination)", # NEW
      "Dehydration", 
+     "Furosemide (Loop)", 
+     "Aldactone (Receptor Antagonist)",
+     "Furosemide + Aldactone (Combination)", 
      "Liddle's Syndrome", 
      "Amiloride (Channel Blocker)", 
-     "Aldactone (Receptor Antagonist)",
      "PHA Type 1 (ENaC Inactivity)")
 )
 
@@ -42,29 +44,24 @@ def get_parameters(scen):
     if scen == "Vomiting (Metabolic Alkalosis)":
         return 1.0, 60.0, 1.0, 1.2, 0.0, 0.88
 
-    if scen == "Furosemide (Loop)":
-        # BP ~110. K Wasting.
-        return 1.0, 45.0, 1.0, 3.0, 0.0, 0.92
-        
-    if scen == "Furosemide + Aldactone (Combination)":
-        # NEW SCENARIO
-        # 1. High Aldo (Volume depletion)
-        # 2. MR Blocked (Aldactone)
-        # 3. High Delivery (Furosemide)
-        # 4. BP Lower than Furosemide alone (Additive diuretic effect)
-        return 1.0, 85.0, 0.0, 3.0, 0.0, 0.89
-        
     if scen == "Dehydration":
         return 1.0, 80.0, 1.0, 0.6, 0.0, 0.85
+
+    if scen == "Furosemide (Loop)":
+        return 1.0, 45.0, 1.0, 3.0, 0.0, 0.92
+
+    if scen == "Aldactone (Receptor Antagonist)":
+        return 1.0, 80.0, 0.0, 1.0, 0.0, 0.94
+        
+    if scen == "Furosemide + Aldactone (Combination)":
+        # High Delivery + Blocked Receptor + High Aldo
+        return 1.0, 85.0, 0.0, 3.0, 0.0, 0.89
         
     if scen == "Liddle's Syndrome":
         return 4.0, 1.0, 1.0, 1.0, 0.0, 1.15
         
     if scen == "Amiloride (Channel Blocker)":
         return 1.0, 70.0, 1.0, 1.0, 0.95, 0.95
-        
-    if scen == "Aldactone (Receptor Antagonist)":
-        return 1.0, 80.0, 0.0, 1.0, 0.0, 0.94
         
     if scen == "PHA Type 1 (ENaC Inactivity)":
         return 0.0, 90.0, 1.0, 1.0, 0.0, 0.88
@@ -100,7 +97,6 @@ systolic = base_bp + bp_shift
 systolic = max(90, min(190, systolic))
 
 # 4. Potassium
-# Formula: K = 4.0 - (Flux Effect)
 k_val = 4.0 - (0.6 * (final_flux - 1.0))
 
 # --- Specific Overrides for Clinical Accuracy ---
@@ -109,9 +105,6 @@ if scenario == "Amiloride (Channel Blocker)":
 elif scenario == "Acetazolamide (Proximal)":
     k_val = 3.3 
 elif scenario == "Furosemide + Aldactone (Combination)":
-    # Flux is lowish (0.3), but delivery is high. 
-    # Aldactone protects against the Furosemide wasting. 
-    # Force Normal Range.
     k_val = 4.4 
 elif final_flux < 0.2: # PHA / Pure Aldactone
     k_val = 5.8 
@@ -142,7 +135,7 @@ def draw_dashboard(scen, flux, deliv, aldo, mr_eff):
 
     # Na+ Dots (Visualizing Delivery)
     dot_count = int(12 * deliv)
-    dot_count = min(60, dot_count) # Cap for visuals
+    dot_count = min(60, dot_count) 
     
     xf = np.linspace(7, 8, int(dot_count/2) + 1)
     yf = np.full_like(xf, 4)
@@ -151,7 +144,7 @@ def draw_dashboard(scen, flux, deliv, aldo, mr_eff):
     yv = np.linspace(4, 1, int(dot_count/2) + 1)
     ax_nephron.scatter(xv, yv, color='blue', s=15, zorder=10)
     
-    # Text Labels
+    # Labels
     ax_nephron.text(2, 4.4, "PCT", ha='center', fontsize=8, weight='bold')
     ax_nephron.text(2, 4, "NHE3", ha='center', va='center', fontsize=6, color='white')
     ax_nephron.text(4, 0.5, "Loop", ha='center', fontsize=8)
@@ -179,6 +172,7 @@ def draw_dashboard(scen, flux, deliv, aldo, mr_eff):
     # -- MR STATUS --
     ax_cell.add_patch(patches.Circle((5, 4), 0.7, fc='white', ec='black', ls='--')) 
     
+    # Logic for MR colors and text
     if mr_eff < 0.1: # Aldactone
         mr_col = 'gray'
         mr_txt = "MR Blocked"
@@ -196,7 +190,8 @@ def draw_dashboard(scen, flux, deliv, aldo, mr_eff):
         ax_cell.arrow(5, 4.5, -1, 1, head_width=0.2, color='#A5D6A7', lw=1)
 
     ax_cell.add_patch(patches.Circle((5, 4), 0.3, fc=mr_col))
-    ax_cell.text(5, 2.8, mr_txt, ha='center', fontsize=8, weight='bold')
+    # MOVED DOWN to 2.2 to avoid overlap with ROMK
+    ax_cell.text(5, 2.2, mr_txt, ha='center', fontsize=9, weight='bold')
 
     # -- ENaC CHANNEL --
     ax_cell.plot([3, 4], [6, 6], color='black', lw=2) 
@@ -210,7 +205,6 @@ def draw_dashboard(scen, flux, deliv, aldo, mr_eff):
         ax_cell.text(3.5, 5.5, "No Flux", fontsize=8, ha='center', va='center', color='red')
         
     else:
-        # Arrow width proportional to flux
         w = min(1.2, flux * 0.4)
         ax_cell.arrow(1.5, 5.5, 3.5, 0, head_width=0.3, color='#4CAF50', lw=w*10)
         ax_cell.text(2, 6.2, "Na+ Influx", color='#2E7D32', weight='bold')
@@ -222,12 +216,13 @@ def draw_dashboard(scen, flux, deliv, aldo, mr_eff):
     ax_cell.plot([3, 3.5], [2, 2], color='purple', lw=2)
     
     # ROMK Secretion Visuals
+    # MOVED UP to 3.2 to avoid overlap with MR
     if flux > 0.8:
         ax_cell.arrow(4.5, 2.5, -3.0, 0, head_width=0.2, color='purple', lw=3)
-        ax_cell.text(4, 2.8, "K+ Secretion", color='purple', fontsize=8)
-    elif flux > 0.2: # Mild secretion (e.g. Furosemide+Aldactone)
+        ax_cell.text(4, 3.2, "K+ Secretion", color='purple', fontsize=8)
+    elif flux > 0.2: 
         ax_cell.arrow(4.5, 2.5, -2.0, 0, head_width=0.1, color='purple', lw=1)
-        ax_cell.text(4, 2.8, "Normal K+", color='purple', fontsize=8)
+        ax_cell.text(4, 3.2, "Normal K+", color='purple', fontsize=8)
     else:
         ax_cell.text(2.5, 2.5, "Reduced", color='gray', fontsize=8, ha='center')
 
@@ -254,7 +249,6 @@ def draw_dashboard(scen, flux, deliv, aldo, mr_eff):
     ax_data.text(0, 0.3, "3. Serum Potassium", fontsize=10, color='gray')
     ax_data.text(0, 0.2, f"{k_val:.1f} mEq/L", fontsize=16, color=c_k, weight='bold')
     
-    # Interpretation Text
     if systolic < 100: ax_data.text(0.5, 0.5, "Hypotension", color='blue', fontsize=10)
     if systolic > 140: ax_data.text(0.5, 0.5, "Hypertension", color='red', fontsize=10)
     if k_val > 5.2: ax_data.text(0.5, 0.2, "Hyperkalemia", color='red', fontsize=10)
